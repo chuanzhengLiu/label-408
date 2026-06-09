@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import api from '../services/api';
-import { FileText, List, Mic2, Save, RefreshCw, ChevronLeft, Layout, Zap, PenTool, Type, Sparkles as SparklesIcon, CheckCircle2, Library, Plus, Trash2, User, MapPin, Sword, Info } from 'lucide-react';
+import { FileText, List, Mic2, Save, RefreshCw, ChevronLeft, Layout, Zap, PenTool, Type, Sparkles as SparklesIcon, CheckCircle2, Library, Plus, Trash2, User, MapPin, Sword, Info, Download, ChevronDown } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toastConfig } from '../utils/toast';
 import AgentProgress from '../components/AgentProgress';
@@ -53,6 +53,11 @@ const deleteKnowledge = async (entryId: number) => {
     return res.data;
 };
 
+const getVolumes = async (novelId: string) => {
+    const res = await api.get(`/novels/${novelId}/volumes`);
+    return res.data;
+};
+
 const Workspace = () => {
     const { id } = useParams<{ id: string }>();
     const navigate = useNavigate();
@@ -65,6 +70,7 @@ const Workspace = () => {
     const [lastCompletedCount, setLastCompletedCount] = useState(0);
     const [isAddKnowledgeOpen, setIsAddKnowledgeOpen] = useState(false);
     const [newEntry, setNewEntry] = useState({ category: '角色', title: '', content: '' });
+    const [showExportMenu, setShowExportMenu] = useState(false);
 
     // Fetch Novel Data
     const { data: novel, isLoading: novelLoading } = useQuery({
@@ -72,6 +78,14 @@ const Workspace = () => {
         queryFn: () => getNovel(id!),
         enabled: !!id,
         staleTime: 30000, // 30 seconds stale time
+        refetchOnWindowFocus: false
+    });
+
+    const { data: volumes } = useQuery({
+        queryKey: ['volumes', id],
+        queryFn: () => getVolumes(id!),
+        enabled: !!id,
+        staleTime: 30000,
         refetchOnWindowFocus: false
     });
 
@@ -214,6 +228,41 @@ const Workspace = () => {
 
     const handleSave = () => {
         saveMutation.mutate();
+    };
+
+    const handleExport = async (volumeId?: number) => {
+        try {
+            const params = volumeId ? { volume_id: volumeId } : {};
+            const response = await api.get(`/novels/${id}/export`, {
+                params,
+                responseType: 'blob'
+            });
+            
+            const blob = new Blob([response.data], { type: 'text/plain; charset=utf-8' });
+            const contentDisposition = response.headers['content-disposition'];
+            let filename = 'export.txt';
+            if (contentDisposition) {
+                const filenameMatch = contentDisposition.match(/filename\*=UTF-8''(.+)/);
+                if (filenameMatch) {
+                    filename = decodeURIComponent(filenameMatch[1]);
+                }
+            }
+            
+            const downloadUrl = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = downloadUrl;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            window.URL.revokeObjectURL(downloadUrl);
+            
+            toastConfig.success(volumeId ? '分卷导出成功！' : '整本导出成功！');
+            setShowExportMenu(false);
+        } catch (e) {
+            console.error(e);
+            toastConfig.error('导出失败，请重试');
+        }
     };
 
     const parseTitles = (text: string) => {
@@ -425,6 +474,42 @@ const Workspace = () => {
                     </div>
                     
                     <div className="flex space-x-3">
+                        <div className="relative">
+                            <button 
+                                onClick={() => setShowExportMenu(!showExportMenu)}
+                                className="px-4 py-2 text-sm font-medium text-surface-600 bg-white border border-surface-200 rounded-lg shadow-sm hover:bg-surface-50 transition flex items-center"
+                            >
+                                <Download className="w-4 h-4 mr-2" />
+                                导出
+                                <ChevronDown className="w-4 h-4 ml-1" />
+                            </button>
+                            {showExportMenu && (
+                                <div className="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-xl border border-surface-200 py-1 z-50">
+                                    <button
+                                        onClick={() => handleExport()}
+                                        className="w-full px-4 py-2 text-left text-sm text-surface-700 hover:bg-surface-50 flex items-center"
+                                    >
+                                        <FileText className="w-4 h-4 mr-2" />
+                                        导出整本
+                                    </button>
+                                    {volumes?.length > 0 && (
+                                        <>
+                                            <div className="border-t border-surface-100 my-1" />
+                                            {volumes.map((vol: any) => (
+                                                <button
+                                                    key={vol.id}
+                                                    onClick={() => handleExport(vol.id)}
+                                                    className="w-full px-4 py-2 text-left text-sm text-surface-700 hover:bg-surface-50 flex items-center"
+                                                >
+                                                    <List className="w-4 h-4 mr-2" />
+                                                    {vol.title}
+                                                </button>
+                                            ))}
+                                        </>
+                                    )}
+                                </div>
+                            )}
+                        </div>
                         <button 
                             onClick={handleSave}
                             disabled={saveMutation.isPending}
