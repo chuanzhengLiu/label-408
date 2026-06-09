@@ -1,7 +1,11 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 import os
+import io
+from datetime import datetime
+from urllib.parse import quote
 from typing import List, Optional
 
 app = FastAPI(title="Novel Gen Brain")
@@ -36,7 +40,7 @@ def get_db():
 def on_startup():
     init_db()
 
-from .database import KnowledgeEntry
+from .database import KnowledgeEntry, Volume
 
 class NovelSettings(BaseModel):
     title: str
@@ -257,6 +261,85 @@ def delete_knowledge_endpoint(entry_id: int, db: Session = Depends(get_db)):
     db.delete(db_entry)
     db.commit()
     return {"status": "success"}
+
+# --- Export Endpoints ---
+
+def _sanitize_filename(name: str) -> str:
+    invalid = '<>:"/\\|?*\n\r\t'
+    cleaned = "".join(c for c in (name or "") if c not in invalid).strip()
+    return cleaned or "novel"
+
+def _format_chapter_text(chapter: Chapter) -> str:
+    title = chapter.title or f"第{chapter.chapter_number}章"
+    body = (chapter.content or "").strip()
+    separator = "=" * 40
+    return f"{separator}\n{title}\n{separator}\n\n{body}\n\n"
+
+def _build_export_text(novel: Novel, volumes: List[Volume]) -> str:
+    header_separator = "*" * 50
+    parts = [
+        header_separator,
+        f"作品名称：{novel.title or '未命名作品'}",
+        f"题材：{novel.genre or '未分类'}",
+        f"导出时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+        header_separator,
+        "",
+        "",
+    ]
+    text = "\n".join(parts)
+    for vol in sorted(volumes, key=lambda v: v.volume_number or 0):
+        vol_title = vol.title or f"第{vol.volume_number}卷"
+        text += f"\n【{vol_title}】\n\n"
+        for chap in sorted(vol.chapters, key=lambda c: c.chapter_number or 0):
+            text += _format_chapter_text(chap)
+    return text
+
+def _make_download_response(content: str, filename: str) -> StreamingResponse:
+    buffer = io.BytesIO(content.encode("utf-8-sig"))
+    encoded_name = quote(filename)
+    headers = {
+        "Content-Disposition": f"attachment; filename=\"{encoded_name}\"; filename*=UTF-8''{encoded_name}",
+    }
+    return StreamingResponse(buffer, media_type="text/plain; charset=utf-8", headers=headers)
+
+@app.get("/novels/{novel_id}/volumes")
+def list_volumes_endpoint(novel_id: int, db: Session = Depends(get_db)):
+    novel = db.query(Novel).filter(Novel.id == novel_id).first()
+    if not novel:
+        return {"error": "Novel not found"}
+    result = []
+    for vol in sorted(novel.volumes, key=lambda v: v.volume_number or 0):
+        result.append({
+            "id": vol.id,
+            "volume_number": vol.volume_number,
+            "title": vol.title,
+            "chapter_count": len(vol.chapters),
+        })
+    return result
+
+@app.get("/novels/{novel_id}/export")
+def export_novel_endpoint(novel_id: int, db: Session = Depends(get_db)):
+    novel = db.query(Novel).filter(Novel.id == novel_id).first()
+    if not novel:
+        return {"error": "Novel not found"}
+    text = _build_export_text(novel, list(novel.volumes))
+    date_str = datetime.now().strftime("%Y%m%d")
+    filename = f"{_sanitize_filename(novel.title)}_全本_{date_str}.txt"
+    return _make_download_response(text, filename)
+
+@app.get("/novels/{novel_id}/volumes/{volume_id}/export")
+def export_volume_endpoint(novel_id: int, volume_id: int, db: Session = Depends(get_db)):
+    novel = db.query(Novel).filter(Novel.id == novel_id).first()
+    if not novel:
+        return {"error": "Novel not found"}
+    volume = db.query(Volume).filter(Volume.id == volume_id, Volume.novel_id == novel_id).first()
+    if not volume:
+        return {"error": "Volume not found"}
+    text = _build_export_text(novel, [volume])
+    date_str = datetime.now().strftime("%Y%m%d")
+    vol_name = _sanitize_filename(volume.title or f"第{volume.volume_number}卷")
+    filename = f"{_sanitize_filename(novel.title)}_{vol_name}_{date_str}.txt"
+    return _make_download_response(text, filename)
 
 if __name__ == "__main__":
     import uvicorn
