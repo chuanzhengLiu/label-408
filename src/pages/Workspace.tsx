@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import api from '../services/api';
-import { FileText, List, Mic2, Save, RefreshCw, ChevronLeft, Layout, Zap, PenTool, Type, Sparkles as SparklesIcon, CheckCircle2, Library, Plus, Trash2, User, MapPin, Sword, Info } from 'lucide-react';
+import { FileText, List, Mic2, Save, RefreshCw, ChevronLeft, Layout, Zap, PenTool, Type, Sparkles as SparklesIcon, CheckCircle2, Library, Plus, Trash2, User, MapPin, Sword, Info, Download, ChevronDown } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toastConfig } from '../utils/toast';
 import AgentProgress from '../components/AgentProgress';
@@ -53,6 +53,31 @@ const deleteKnowledge = async (entryId: number) => {
     return res.data;
 };
 
+const getVolumes = async (id: string) => {
+    const res = await api.get(`/novels/${id}/volumes`);
+    return res.data;
+};
+
+const exportNovel = async (novelId: string, volumeId?: number) => {
+    const params = volumeId !== undefined ? { volume_id: volumeId } : {};
+    const res = await api.get(`/novels/${novelId}/export`, { params, responseType: 'blob' });
+    const blob = new Blob([res.data], { type: 'text/plain;charset=utf-8' });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    const disposition = res.headers['content-disposition'];
+    let filename = `export_${novelId}.txt`;
+    if (disposition) {
+        const match = disposition.match(/filename\*=UTF-8''(.+)/);
+        if (match) filename = decodeURIComponent(match[1]);
+    }
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(url);
+};
+
 const Workspace = () => {
     const { id } = useParams<{ id: string }>();
     const navigate = useNavigate();
@@ -65,6 +90,8 @@ const Workspace = () => {
     const [lastCompletedCount, setLastCompletedCount] = useState(0);
     const [isAddKnowledgeOpen, setIsAddKnowledgeOpen] = useState(false);
     const [newEntry, setNewEntry] = useState({ category: '角色', title: '', content: '' });
+    const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
+    const [isExporting, setIsExporting] = useState(false);
 
     // Fetch Novel Data
     const { data: novel, isLoading: novelLoading } = useQuery({
@@ -89,6 +116,14 @@ const Workspace = () => {
         queryKey: ['knowledge', id],
         queryFn: () => getKnowledge(id!),
         enabled: activeTab === 'knowledge',
+        staleTime: 60000,
+        refetchOnWindowFocus: false
+    });
+
+    const { data: volumesData } = useQuery({
+        queryKey: ['volumes', id],
+        queryFn: () => getVolumes(id!),
+        enabled: !!id,
         staleTime: 60000,
         refetchOnWindowFocus: false
     });
@@ -337,6 +372,21 @@ const Workspace = () => {
         else setActiveTab('chapters');
     };
 
+    const handleExport = async (volumeId?: number) => {
+        if (!id) return;
+        setIsExporting(true);
+        setIsExportMenuOpen(false);
+        try {
+            await exportNovel(id, volumeId);
+            toastConfig.success(volumeId ? '按卷导出成功' : '整本导出成功');
+        } catch (e) {
+            console.error(e);
+            toastConfig.error('导出失败，请重试');
+        } finally {
+            setIsExporting(false);
+        }
+    };
+
 
     if (novelLoading) {
         return (
@@ -425,6 +475,46 @@ const Workspace = () => {
                     </div>
                     
                     <div className="flex space-x-3">
+                        <div className="relative">
+                            <button 
+                                onClick={() => setIsExportMenuOpen(!isExportMenuOpen)}
+                                disabled={isExporting}
+                                className="px-4 py-2 text-sm font-medium text-surface-600 bg-white border border-surface-200 rounded-lg shadow-sm hover:bg-surface-50 transition flex items-center disabled:opacity-50"
+                            >
+                                <Download className="w-4 h-4 mr-2" />
+                                {isExporting ? '导出中...' : '导出'}
+                                <ChevronDown className="w-3 h-3 ml-1" />
+                            </button>
+                            {isExportMenuOpen && (
+                                <>
+                                    <div className="fixed inset-0 z-30" onClick={() => setIsExportMenuOpen(false)} />
+                                    <div className="absolute right-0 mt-2 w-48 bg-white border border-surface-200 rounded-lg shadow-lg z-40 py-1">
+                                        <button
+                                            onClick={() => handleExport()}
+                                            className="w-full text-left px-4 py-2 text-sm text-surface-700 hover:bg-surface-50 flex items-center"
+                                        >
+                                            <Download className="w-4 h-4 mr-2 text-surface-400" />
+                                            整本导出
+                                        </button>
+                                        {volumesData?.length > 0 && (
+                                            <>
+                                                <div className="border-t border-surface-100 my-1" />
+                                                {volumesData.map((vol: any) => (
+                                                    <button
+                                                        key={vol.id}
+                                                        onClick={() => handleExport(vol.id)}
+                                                        className="w-full text-left px-4 py-2 text-sm text-surface-700 hover:bg-surface-50 flex items-center"
+                                                    >
+                                                        <FileText className="w-4 h-4 mr-2 text-surface-400" />
+                                                        {vol.title}
+                                                    </button>
+                                                ))}
+                                            </>
+                                        )}
+                                    </div>
+                                </>
+                            )}
+                        </div>
                         <button 
                             onClick={handleSave}
                             disabled={saveMutation.isPending}

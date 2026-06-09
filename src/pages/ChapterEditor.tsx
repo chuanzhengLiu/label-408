@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import api from '../services/api';
-import { ArrowLeft, Sparkles, Save, FileText, PenTool } from 'lucide-react';
+import { ArrowLeft, Sparkles, Save, FileText, PenTool, Download, ChevronDown } from 'lucide-react';
 import { toastConfig } from '../utils/toast';
 
 // API Functions
@@ -31,6 +31,31 @@ const generateChapterFineOutline = async (id: string) => {
     return res.data;
 };
 
+const getVolumes = async (novelId: string) => {
+    const res = await api.get(`/novels/${novelId}/volumes`);
+    return res.data;
+};
+
+const exportNovel = async (novelId: string, volumeId?: number) => {
+    const params = volumeId !== undefined ? { volume_id: volumeId } : {};
+    const res = await api.get(`/novels/${novelId}/export`, { params, responseType: 'blob' });
+    const blob = new Blob([res.data], { type: 'text/plain;charset=utf-8' });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    const disposition = res.headers['content-disposition'];
+    let filename = `export_${novelId}.txt`;
+    if (disposition) {
+        const match = disposition.match(/filename\*=UTF-8''(.+)/);
+        if (match) filename = decodeURIComponent(match[1]);
+    }
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(url);
+};
+
 import AgentProgress from '../components/AgentProgress';
 
 const ChapterEditor = () => {
@@ -42,6 +67,8 @@ const ChapterEditor = () => {
     const [fineOutline, setFineOutline] = useState('');
     const [wordCount, setWordCount] = useState(0);
     const [isGenerating, setIsGenerating] = useState(false);
+    const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
+    const [isExporting, setIsExporting] = useState(false);
 
     // Fetch chapter data
     const { data: chapter, isLoading, refetch } = useQuery({
@@ -50,6 +77,14 @@ const ChapterEditor = () => {
         staleTime: 30000,
         refetchOnWindowFocus: false,
         enabled: !!id
+    });
+
+    const { data: volumesData } = useQuery({
+        queryKey: ['volumes', chapter?.novel_id],
+        queryFn: () => getVolumes(chapter.novel_id.toString()),
+        enabled: !!chapter?.novel_id,
+        staleTime: 60000,
+        refetchOnWindowFocus: false
     });
 
     useEffect(() => {
@@ -150,6 +185,21 @@ const ChapterEditor = () => {
         if (activeTab === 'content') generateMutation.mutate();
     };
 
+    const handleExport = async (volumeId?: number) => {
+        if (!chapter?.novel_id) return;
+        setIsExporting(true);
+        setIsExportMenuOpen(false);
+        try {
+            await exportNovel(chapter.novel_id.toString(), volumeId);
+            toastConfig.success(volumeId ? '按卷导出成功' : '整本导出成功');
+        } catch (e) {
+            console.error(e);
+            toastConfig.error('导出失败，请重试');
+        } finally {
+            setIsExporting(false);
+        }
+    };
+
     if (isLoading) {
         return (
             <div className="h-screen flex items-center justify-center bg-surface-50">
@@ -179,6 +229,46 @@ const ChapterEditor = () => {
                 </div>
 
                 <div className="flex items-center space-x-3">
+                    <div className="relative">
+                        <button
+                            onClick={() => setIsExportMenuOpen(!isExportMenuOpen)}
+                            disabled={isExporting}
+                            className="px-4 py-2 text-sm font-medium text-surface-600 bg-white border border-surface-200 rounded-lg hover:bg-surface-50 transition flex items-center disabled:opacity-50"
+                        >
+                            <Download className="w-4 h-4 mr-2" />
+                            {isExporting ? '导出中...' : '导出'}
+                            <ChevronDown className="w-3 h-3 ml-1" />
+                        </button>
+                        {isExportMenuOpen && (
+                            <>
+                                <div className="fixed inset-0 z-30" onClick={() => setIsExportMenuOpen(false)} />
+                                <div className="absolute right-0 mt-2 w-48 bg-white border border-surface-200 rounded-lg shadow-lg z-40 py-1">
+                                    <button
+                                        onClick={() => handleExport()}
+                                        className="w-full text-left px-4 py-2 text-sm text-surface-700 hover:bg-surface-50 flex items-center"
+                                    >
+                                        <Download className="w-4 h-4 mr-2 text-surface-400" />
+                                        整本导出
+                                    </button>
+                                    {volumesData?.length > 0 && (
+                                        <>
+                                            <div className="border-t border-surface-100 my-1" />
+                                            {volumesData.map((vol: any) => (
+                                                <button
+                                                    key={vol.id}
+                                                    onClick={() => handleExport(vol.id)}
+                                                    className="w-full text-left px-4 py-2 text-sm text-surface-700 hover:bg-surface-50 flex items-center"
+                                                >
+                                                    <FileText className="w-4 h-4 mr-2 text-surface-400" />
+                                                    {vol.title}
+                                                </button>
+                                            ))}
+                                        </>
+                                    )}
+                                </div>
+                            </>
+                        )}
+                    </div>
                     <button
                         onClick={handleStageGenerate}
                         disabled={outlineMutation.isPending || fineOutlineMutation.isPending || generateMutation.isPending}
