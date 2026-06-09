@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import api from '../services/api';
-import { ArrowLeft, Sparkles, Save, FileText, PenTool } from 'lucide-react';
+import { ArrowLeft, Sparkles, Save, FileText, PenTool, Download, ChevronDown } from 'lucide-react';
 import { toastConfig } from '../utils/toast';
 
 // API Functions
@@ -31,6 +31,16 @@ const generateChapterFineOutline = async (id: string) => {
     return res.data;
 };
 
+const exportNovelTxt = (novelId: number) => {
+    const url = `${api.defaults.baseURL}/novels/${novelId}/export/txt`;
+    window.open(url, '_blank');
+};
+
+const exportChapterTxt = (chapterId: string) => {
+    const url = `${api.defaults.baseURL}/chapters/${chapterId}/export/txt`;
+    window.open(url, '_blank');
+};
+
 import AgentProgress from '../components/AgentProgress';
 
 const ChapterEditor = () => {
@@ -42,6 +52,7 @@ const ChapterEditor = () => {
     const [fineOutline, setFineOutline] = useState('');
     const [wordCount, setWordCount] = useState(0);
     const [isGenerating, setIsGenerating] = useState(false);
+    const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
 
     // Fetch chapter data
     const { data: chapter, isLoading, refetch } = useQuery({
@@ -104,6 +115,22 @@ const ChapterEditor = () => {
 
     const handleSave = () => {
         saveMutation.mutate();
+    };
+
+    const handleExportCurrentChapter = () => {
+        if (id) {
+            exportChapterTxt(id);
+            setIsExportMenuOpen(false);
+            toastConfig.success('正在导出当前章节...');
+        }
+    };
+
+    const handleExportNovel = () => {
+        if (chapter?.novel_id) {
+            exportNovelTxt(chapter.novel_id);
+            setIsExportMenuOpen(false);
+            toastConfig.success('正在导出整本小说...');
+        }
     };
 
     const handleApplyResult = (task: any) => {
@@ -179,6 +206,34 @@ const ChapterEditor = () => {
                 </div>
 
                 <div className="flex items-center space-x-3">
+                    <div className="relative">
+                        <button
+                            onClick={() => setIsExportMenuOpen(!isExportMenuOpen)}
+                            className="px-4 py-2 text-sm font-medium text-surface-600 bg-white border border-surface-200 rounded-lg hover:bg-surface-50 transition flex items-center"
+                        >
+                            <Download className="w-4 h-4 mr-2" />
+                            导出
+                            <ChevronDown className="w-4 h-4 ml-2" />
+                        </button>
+                        {isExportMenuOpen && (
+                            <div className="absolute right-0 top-full mt-2 bg-white rounded-lg shadow-lg border border-surface-200 py-2 min-w-[180px] z-50">
+                                <button 
+                                    onClick={handleExportCurrentChapter}
+                                    className="w-full px-4 py-2 text-left text-sm text-surface-700 hover:bg-surface-50 flex items-center space-x-2"
+                                >
+                                    <FileText className="w-4 h-4" />
+                                    <span>导出当前章节</span>
+                                </button>
+                                <button 
+                                    onClick={handleExportNovel}
+                                    className="w-full px-4 py-2 text-left text-sm text-surface-700 hover:bg-surface-50 flex items-center space-x-2"
+                                >
+                                    <FileText className="w-4 h-4" />
+                                    <span>导出整本小说</span>
+                                </button>
+                            </div>
+                        )}
+                    </div>
                     <button
                         onClick={handleStageGenerate}
                         disabled={outlineMutation.isPending || fineOutlineMutation.isPending || generateMutation.isPending}

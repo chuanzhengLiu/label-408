@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import api from '../services/api';
-import { FileText, List, Mic2, Save, RefreshCw, ChevronLeft, Layout, Zap, PenTool, Type, Sparkles as SparklesIcon, CheckCircle2, Library, Plus, Trash2, User, MapPin, Sword, Info } from 'lucide-react';
+import { FileText, List, Mic2, Save, RefreshCw, ChevronLeft, Layout, Zap, PenTool, Type, Sparkles as SparklesIcon, CheckCircle2, Library, Plus, Trash2, User, MapPin, Sword, Info, Download, ChevronDown } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toastConfig } from '../utils/toast';
 import AgentProgress from '../components/AgentProgress';
@@ -53,6 +53,30 @@ const deleteKnowledge = async (entryId: number) => {
     return res.data;
 };
 
+const downloadFile = (url: string, filename: string) => {
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+};
+
+const exportNovelTxt = async (novelId: string) => {
+    const url = `${api.defaults.baseURL}/novels/${novelId}/export/txt`;
+    window.open(url, '_blank');
+};
+
+const exportVolumeTxt = async (novelId: string, volumeId: number) => {
+    const url = `${api.defaults.baseURL}/novels/${novelId}/volumes/${volumeId}/export/txt`;
+    window.open(url, '_blank');
+};
+
+const getVolumes = async (novelId: string) => {
+    const res = await api.get(`/novels/${novelId}/volumes`);
+    return res.data;
+};
+
 const Workspace = () => {
     const { id } = useParams<{ id: string }>();
     const navigate = useNavigate();
@@ -65,6 +89,8 @@ const Workspace = () => {
     const [lastCompletedCount, setLastCompletedCount] = useState(0);
     const [isAddKnowledgeOpen, setIsAddKnowledgeOpen] = useState(false);
     const [newEntry, setNewEntry] = useState({ category: '角色', title: '', content: '' });
+    const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
+    const [activeVolumeExportId, setActiveVolumeExportId] = useState<number | null>(null);
 
     // Fetch Novel Data
     const { data: novel, isLoading: novelLoading } = useQuery({
@@ -80,6 +106,15 @@ const Workspace = () => {
         queryKey: ['chapters', id],
         queryFn: () => getChapters(id!),
         enabled: activeTab === 'chapters',
+        staleTime: 30000,
+        refetchOnWindowFocus: false
+    });
+
+    // Fetch Volumes Query
+    const { data: volumesData } = useQuery({
+        queryKey: ['volumes', id],
+        queryFn: () => getVolumes(id!),
+        enabled: !!id,
         staleTime: 30000,
         refetchOnWindowFocus: false
     });
@@ -214,6 +249,22 @@ const Workspace = () => {
 
     const handleSave = () => {
         saveMutation.mutate();
+    };
+
+    const handleExportNovel = () => {
+        if (id) {
+            exportNovelTxt(id);
+            setIsExportMenuOpen(false);
+            toastConfig.success('正在导出整本小说...');
+        }
+    };
+
+    const handleExportVolume = (volumeId: number) => {
+        if (id) {
+            exportVolumeTxt(id, volumeId);
+            setActiveVolumeExportId(null);
+            toastConfig.success('正在导出分卷...');
+        }
     };
 
     const parseTitles = (text: string) => {
@@ -599,6 +650,39 @@ const Workspace = () => {
                                             <p className="text-surface-500 mt-1">智能规划分卷与章节结构</p>
                                         </div>
                                         <div className="flex space-x-2">
+                                            <div className="relative">
+                                                <button 
+                                                    onClick={() => setIsExportMenuOpen(!isExportMenuOpen)}
+                                                    disabled={chapters.length === 0}
+                                                    className="bg-white border border-surface-200 text-surface-600 px-4 py-2 rounded-lg font-medium hover:bg-surface-50 transition flex items-center space-x-2 disabled:opacity-50"
+                                                >
+                                                    <Download className="w-4 h-4" />
+                                                    <span>导出</span>
+                                                    <ChevronDown className="w-4 h-4" />
+                                                </button>
+                                                {isExportMenuOpen && (
+                                                    <div className="absolute right-0 top-full mt-2 bg-white rounded-lg shadow-lg border border-surface-200 py-2 min-w-[180px] z-50">
+                                                        <button 
+                                                            onClick={handleExportNovel}
+                                                            className="w-full px-4 py-2 text-left text-sm text-surface-700 hover:bg-surface-50 flex items-center space-x-2"
+                                                        >
+                                                            <FileText className="w-4 h-4" />
+                                                            <span>导出整本小说</span>
+                                                        </button>
+                                                        <div className="border-t border-surface-100 my-1"></div>
+                                                        <div className="px-4 py-1 text-xs text-surface-400 font-medium">按分卷导出</div>
+                                                        {volumesData?.map((volume: any) => (
+                                                            <button 
+                                                                key={volume.id}
+                                                                onClick={() => handleExportVolume(volume.id)}
+                                                                className="w-full px-4 py-2 text-left text-sm text-surface-700 hover:bg-surface-50"
+                                                            >
+                                                                第{volume.volume_number}卷 {volume.title}
+                                                            </button>
+                                                        ))}
+                                                    </div>
+                                                )}
+                                            </div>
                                             <button 
                                                 onClick={handleBatchGenerate}
                                                 disabled={isBatching || chapters.length === 0}
