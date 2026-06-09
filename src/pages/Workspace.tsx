@@ -6,6 +6,7 @@ import { FileText, List, Mic2, Save, RefreshCw, ChevronLeft, Layout, Zap, PenToo
 import { motion, AnimatePresence } from 'framer-motion';
 import { toastConfig } from '../utils/toast';
 import AgentProgress from '../components/AgentProgress';
+import ExportMenu from '../components/ExportMenu';
 
 // API Functions
 const getNovel = async (id: string) => {
@@ -425,6 +426,9 @@ const Workspace = () => {
                     </div>
                     
                     <div className="flex space-x-3">
+                        {id && (
+                            <ExportMenu novelId={id} novelTitle={novel?.title} />
+                        )}
                         <button 
                             onClick={handleSave}
                             disabled={saveMutation.isPending}

@@ -32,6 +32,7 @@ const generateChapterFineOutline = async (id: string) => {
 };
 
 import AgentProgress from '../components/AgentProgress';
+import ExportMenu from '../components/ExportMenu';
 
 const ChapterEditor = () => {
     const { id } = useParams<{ id: string }>();
@@ -179,6 +180,9 @@ const ChapterEditor = () => {
                 </div>
 
                 <div className="flex items-center space-x-3">
+                    {chapter?.novel_id && (
+                        <ExportMenu novelId={chapter.novel_id.toString()} novelTitle={chapter?.novel_title} />
+                    )}
                     <button
                         onClick={handleStageGenerate}
                         disabled={outlineMutation.isPending || fineOutlineMutation.isPending || generateMutation.isPending}
