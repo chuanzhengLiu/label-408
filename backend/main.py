@@ -1,8 +1,11 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response
 from pydantic import BaseModel
 import os
 from typing import List, Optional
+from datetime import datetime
+from urllib.parse import quote
 
 app = FastAPI(title="Novel Gen Brain")
 
@@ -257,6 +260,158 @@ def delete_knowledge_endpoint(entry_id: int, db: Session = Depends(get_db)):
     db.delete(db_entry)
     db.commit()
     return {"status": "success"}
+
+def _format_chapter_content(chapter) -> str:
+    content_lines = []
+    content_lines.append(f"第{chapter.chapter_number}章 {chapter.title}")
+    content_lines.append("")
+    if chapter.content:
+        content_lines.append(chapter.content)
+    else:
+        content_lines.append("（本章暂无内容）")
+    content_lines.append("")
+    content_lines.append("=" * 50)
+    content_lines.append("")
+    return "\n".join(content_lines)
+
+def _format_volume_content(volume) -> str:
+    content_lines = []
+    content_lines.append(f"第{volume.volume_number}卷 {volume.title}")
+    content_lines.append("")
+    content_lines.append("~" * 50)
+    content_lines.append("")
+    for chapter in sorted(volume.chapters, key=lambda c: c.chapter_number):
+        content_lines.append(_format_chapter_content(chapter))
+    return "\n".join(content_lines)
+
+def _sanitize_filename(filename: str) -> str:
+    invalid_chars = '<>:"/\\|?*'
+    for char in invalid_chars:
+        filename = filename.replace(char, '_')
+    return filename
+
+from .database import Volume
+
+@app.get("/novels/{novel_id}/volumes")
+def list_volumes_endpoint(novel_id: int, db: Session = Depends(get_db)):
+    novel = db.query(Novel).filter(Novel.id == novel_id).first()
+    if not novel:
+        return {"error": "Novel not found"}
+    
+    volumes = []
+    for vol in sorted(novel.volumes, key=lambda v: v.volume_number):
+        total_chapters = len(vol.chapters)
+        total_words = sum(len(c.content or "") for c in vol.chapters)
+        volumes.append({
+            "id": vol.id,
+            "volume_number": vol.volume_number,
+            "title": vol.title,
+            "total_chapters": total_chapters,
+            "total_words": total_words
+        })
+    return volumes
+
+@app.get("/novels/{novel_id}/export/txt")
+def export_novel_endpoint(novel_id: int, db: Session = Depends(get_db)):
+    novel = db.query(Novel).filter(Novel.id == novel_id).first()
+    if not novel:
+        return {"error": "Novel not found"}
+    
+    content_lines = []
+    content_lines.append(novel.title)
+    content_lines.append("")
+    if novel.genre:
+        content_lines.append(f"类型：{novel.genre}")
+    if novel.style_tags:
+        content_lines.append(f"风格标签：{novel.style_tags}")
+    content_lines.append("")
+    content_lines.append("=" * 60)
+    content_lines.append("")
+    
+    for volume in sorted(novel.volumes, key=lambda v: v.volume_number):
+        content_lines.append(_format_volume_content(volume))
+    
+    full_content = "\n".join(content_lines)
+    
+    date_str = datetime.now().strftime("%Y%m%d")
+    filename = f"{novel.title}_{date_str}.txt"
+    filename = _sanitize_filename(filename)
+    
+    encoded_filename = quote(filename)
+    
+    return Response(
+        content=full_content.encode('utf-8'),
+        media_type="text/plain; charset=utf-8",
+        headers={
+            "Content-Disposition": f"attachment; filename*=UTF-8''{encoded_filename}"
+        }
+    )
+
+@app.get("/novels/{novel_id}/volumes/{volume_id}/export/txt")
+def export_volume_endpoint(novel_id: int, volume_id: int, db: Session = Depends(get_db)):
+    volume = db.query(Volume).filter(Volume.id == volume_id, Volume.novel_id == novel_id).first()
+    if not volume:
+        return {"error": "Volume not found"}
+    
+    novel = db.query(Novel).filter(Novel.id == novel_id).first()
+    if not novel:
+        return {"error": "Novel not found"}
+    
+    content_lines = []
+    content_lines.append(f"{novel.title} - 第{volume.volume_number}卷 {volume.title}")
+    content_lines.append("")
+    content_lines.append("=" * 60)
+    content_lines.append("")
+    
+    content_lines.append(_format_volume_content(volume))
+    
+    full_content = "\n".join(content_lines)
+    
+    date_str = datetime.now().strftime("%Y%m%d")
+    filename = f"{novel.title}_第{volume.volume_number}卷_{volume.title}_{date_str}.txt"
+    filename = _sanitize_filename(filename)
+    
+    encoded_filename = quote(filename)
+    
+    return Response(
+        content=full_content.encode('utf-8'),
+        media_type="text/plain; charset=utf-8",
+        headers={
+            "Content-Disposition": f"attachment; filename*=UTF-8''{encoded_filename}"
+        }
+    )
+
+@app.get("/chapters/{chapter_id}/export/txt")
+def export_chapter_endpoint(chapter_id: int, db: Session = Depends(get_db)):
+    chapter = db.query(Chapter).filter(Chapter.id == chapter_id).first()
+    if not chapter:
+        return {"error": "Chapter not found"}
+    
+    novel = chapter.volume.novel
+    
+    content_lines = []
+    content_lines.append(f"{novel.title}")
+    content_lines.append(f"第{chapter.volume.volume_number}卷 {chapter.volume.title}")
+    content_lines.append("")
+    content_lines.append("=" * 60)
+    content_lines.append("")
+    content_lines.append(_format_chapter_content(chapter))
+    
+    full_content = "\n".join(content_lines)
+    
+    date_str = datetime.now().strftime("%Y%m%d")
+    filename = f"{novel.title}_第{chapter.chapter_number}章_{chapter.title}_{date_str}.txt"
+    filename = _sanitize_filename(filename)
+    
+    encoded_filename = quote(filename)
+    
+    return Response(
+        content=full_content.encode('utf-8'),
+        media_type="text/plain; charset=utf-8",
+        headers={
+            "Content-Disposition": f"attachment; filename*=UTF-8''{encoded_filename}"
+        }
+    )
 
 if __name__ == "__main__":
     import uvicorn
