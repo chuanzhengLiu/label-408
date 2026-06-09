@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import api from '../services/api';
-import { ArrowLeft, Sparkles, Save, FileText, PenTool } from 'lucide-react';
+import { ArrowLeft, Sparkles, Save, FileText, PenTool, Download, ChevronDown, List } from 'lucide-react';
 import { toastConfig } from '../utils/toast';
 
 // API Functions
@@ -31,6 +31,11 @@ const generateChapterFineOutline = async (id: string) => {
     return res.data;
 };
 
+const getVolumes = async (novelId: string) => {
+    const res = await api.get(`/novels/${novelId}/volumes`);
+    return res.data;
+};
+
 import AgentProgress from '../components/AgentProgress';
 
 const ChapterEditor = () => {
@@ -42,6 +47,7 @@ const ChapterEditor = () => {
     const [fineOutline, setFineOutline] = useState('');
     const [wordCount, setWordCount] = useState(0);
     const [isGenerating, setIsGenerating] = useState(false);
+    const [showExportMenu, setShowExportMenu] = useState(false);
 
     // Fetch chapter data
     const { data: chapter, isLoading, refetch } = useQuery({
@@ -50,6 +56,14 @@ const ChapterEditor = () => {
         staleTime: 30000,
         refetchOnWindowFocus: false,
         enabled: !!id
+    });
+
+    const { data: volumes } = useQuery({
+        queryKey: ['volumes', chapter?.novel_id],
+        queryFn: () => getVolumes(chapter!.novel_id!.toString()),
+        enabled: !!chapter?.novel_id,
+        staleTime: 30000,
+        refetchOnWindowFocus: false
     });
 
     useEffect(() => {
@@ -104,6 +118,44 @@ const ChapterEditor = () => {
 
     const handleSave = () => {
         saveMutation.mutate();
+    };
+
+    const handleExport = async (volumeId?: number) => {
+        try {
+            const novelId = chapter?.novel_id;
+            if (!novelId) return;
+            
+            const params = volumeId ? { volume_id: volumeId } : {};
+            const response = await api.get(`/novels/${novelId}/export`, {
+                params,
+                responseType: 'blob'
+            });
+            
+            const blob = new Blob([response.data], { type: 'text/plain; charset=utf-8' });
+            const contentDisposition = response.headers['content-disposition'];
+            let filename = 'export.txt';
+            if (contentDisposition) {
+                const filenameMatch = contentDisposition.match(/filename\*=UTF-8''(.+)/);
+                if (filenameMatch) {
+                    filename = decodeURIComponent(filenameMatch[1]);
+                }
+            }
+            
+            const downloadUrl = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = downloadUrl;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            window.URL.revokeObjectURL(downloadUrl);
+            
+            toastConfig.success(volumeId ? '分卷导出成功！' : '整本导出成功！');
+            setShowExportMenu(false);
+        } catch (e) {
+            console.error(e);
+            toastConfig.error('导出失败，请重试');
+        }
     };
 
     const handleApplyResult = (task: any) => {
@@ -179,6 +231,42 @@ const ChapterEditor = () => {
                 </div>
 
                 <div className="flex items-center space-x-3">
+                    <div className="relative">
+                        <button 
+                            onClick={() => setShowExportMenu(!showExportMenu)}
+                            className="px-4 py-2 text-sm font-medium text-surface-600 bg-white border border-surface-200 rounded-lg shadow-sm hover:bg-surface-50 transition flex items-center"
+                        >
+                            <Download className="w-4 h-4 mr-2" />
+                            导出
+                            <ChevronDown className="w-4 h-4 ml-1" />
+                        </button>
+                        {showExportMenu && (
+                            <div className="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-xl border border-surface-200 py-1 z-50">
+                                <button
+                                    onClick={() => handleExport()}
+                                    className="w-full px-4 py-2 text-left text-sm text-surface-700 hover:bg-surface-50 flex items-center"
+                                >
+                                    <FileText className="w-4 h-4 mr-2" />
+                                    导出整本
+                                </button>
+                                {volumes?.length > 0 && (
+                                    <>
+                                        <div className="border-t border-surface-100 my-1" />
+                                        {volumes.map((vol: any) => (
+                                            <button
+                                                key={vol.id}
+                                                onClick={() => handleExport(vol.id)}
+                                                className="w-full px-4 py-2 text-left text-sm text-surface-700 hover:bg-surface-50 flex items-center"
+                                            >
+                                                <List className="w-4 h-4 mr-2" />
+                                                {vol.title}
+                                            </button>
+                                        ))}
+                                    </>
+                                )}
+                            </div>
+                        )}
+                    </div>
                     <button
                         onClick={handleStageGenerate}
                         disabled={outlineMutation.isPending || fineOutlineMutation.isPending || generateMutation.isPending}

@@ -1,7 +1,10 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response
 from pydantic import BaseModel
 import os
+import io
+from datetime import datetime
 from typing import List, Optional
 
 app = FastAPI(title="Novel Gen Brain")
@@ -257,6 +260,81 @@ def delete_knowledge_endpoint(entry_id: int, db: Session = Depends(get_db)):
     db.delete(db_entry)
     db.commit()
     return {"status": "success"}
+
+def generate_export_text(novel, volumes=None):
+    lines = []
+    lines.append(novel.title)
+    lines.append("=" * 50)
+    lines.append("")
+    
+    export_volumes = volumes if volumes is not None else novel.volumes
+    
+    for volume in export_volumes:
+        if volume.title:
+            lines.append(volume.title)
+            lines.append("-" * 30)
+            lines.append("")
+        
+        chapters = sorted(volume.chapters, key=lambda c: c.chapter_number)
+        for chapter in chapters:
+            lines.append(chapter.title)
+            lines.append("")
+            content = chapter.content or ""
+            lines.append(content)
+            lines.append("")
+            lines.append("=" * 50)
+            lines.append("")
+    
+    return "\n".join(lines)
+
+def sanitize_filename(filename):
+    invalid_chars = '<>:"/\\|?*'
+    for char in invalid_chars:
+        filename = filename.replace(char, '_')
+    return filename
+
+@app.get("/novels/{novel_id}/volumes")
+def get_volumes_endpoint(novel_id: int, db: Session = Depends(get_db)):
+    novel = db.query(Novel).filter(Novel.id == novel_id).first()
+    if not novel:
+        return {"error": "Novel not found"}
+    result = []
+    for vol in novel.volumes:
+        result.append({
+            "id": vol.id,
+            "volume_number": vol.volume_number,
+            "title": vol.title,
+            "chapter_count": len(vol.chapters)
+        })
+    return result
+
+@app.get("/novels/{novel_id}/export")
+def export_novel_endpoint(novel_id: int, volume_id: Optional[int] = None, db: Session = Depends(get_db)):
+    novel = db.query(Novel).filter(Novel.id == novel_id).first()
+    if not novel:
+        return {"error": "Novel not found"}
+    
+    volumes = None
+    if volume_id is not None:
+        volumes = [v for v in novel.volumes if v.id == volume_id]
+        if not volumes:
+            return {"error": "Volume not found"}
+    
+    text_content = generate_export_text(novel, volumes)
+    
+    date_str = datetime.now().strftime("%Y%m%d")
+    if volume_id is not None and volumes:
+        filename = f"{sanitize_filename(novel.title)}_{sanitize_filename(volumes[0].title)}_{date_str}.txt"
+    else:
+        filename = f"{sanitize_filename(novel.title)}_{date_str}.txt"
+    
+    return Response(
+        content=text_content.encode('utf-8'),
+        media_type="text/plain; charset=utf-8",
+        headers={
+            "Content-Disposition": f"attachment; filename*=UTF-8''{filename}"
+        }
+    )
 
 if __name__ == "__main__":
     import uvicorn
