@@ -1,0 +1,48 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", system-ui, -apple-system, sans-serif;
+  --font-serif: "Noto Serif SC", serif;
+
+  /* Primary Colors - Indigo/Blue */
+  --color-primary-50: #eff6ff;
+  --color-primary-100: #dbeafe;
+  --color-primary-200: #bfdbfe;
+  --color-primary-300: #93c5fd;
+  --color-primary-400: #60a5fa;
+  --color-primary-500: #3b82f6;
+  --color-primary-600: #2563eb;
+  --color-primary-700: #1d4ed8;
+  --color-primary-800: #1e40af;
+  --color-primary-900: #1e3a8a;
+  --color-primary-950: #172554;
+
+  /* Secondary Colors - Violet */
+  --color-secondary-50: #f5f3ff;
+  --color-secondary-100: #ede9fe;
+  --color-secondary-500: #8b5cf6;
+  --color-secondary-600: #7c3aed;
+
+  /* Surface Colors - Slate */
+  --color-surface-50: #f8fafc;
+  --color-surface-100: #f1f5f9;
+  --color-surface-200: #e2e8f0;
+  --color-surface-300: #cbd5e1;
+  --color-surface-800: #1e293b;
+  --color-surface-900: #0f172a;
+}
+
+@layer base {
+  body {
+    @apply bg-surface-50 text-surface-900 font-sans antialiased selection:bg-primary-100 selection:text-primary-900;
+  }
+}
+
+/* Glassmorphism Utilities */
+@utility glass-panel {
+    @apply bg-white/70 backdrop-blur-md border border-white/50 shadow-sm;
+}
+
+@utility glass-card {
+    @apply bg-white/80 backdrop-blur-sm border border-surface-200 shadow-md hover:shadow-lg transition-all duration-300;
+}
