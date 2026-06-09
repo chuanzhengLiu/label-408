@@ -165,6 +165,7 @@ class NovelService:
             for chap in vol.chapters:
                 chapters.append({
                     "id": chap.id,
+                    "volume_id": vol.id,
                     "volume_title": vol.title,
                     "chapter_number": chap.chapter_number,
                     "title": chap.title,

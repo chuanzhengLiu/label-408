@@ -1,8 +1,10 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel
-import os
+from urllib.parse import quote as url_quote
 from typing import List, Optional
+from datetime import datetime
 
 app = FastAPI(title="Novel Gen Brain")
 
@@ -19,9 +21,9 @@ class HealthResponse(BaseModel):
     status: str
     message: str
 
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from fastapi import Depends
-from .database import SessionLocal, init_db, Novel, Chapter
+from .database import SessionLocal, init_db, Novel, Chapter, Volume
 from .services.workflow import NovelService
 
 # Dependency
@@ -146,6 +148,18 @@ def get_chapters_endpoint(novel_id: int, db: Session = Depends(get_db)):
     service = NovelService(db)
     return service.get_chapters(novel_id)
 
+@app.get("/novels/{novel_id}/volumes")
+def get_volumes_endpoint(novel_id: int, db: Session = Depends(get_db)):
+    novel = db.query(Novel).filter(Novel.id == novel_id).first()
+    if not novel:
+        return {"error": "Novel not found"}
+    return [{
+        "id": v.id,
+        "volume_number": v.volume_number,
+        "title": v.title,
+        "chapter_count": len(v.chapters)
+    } for v in sorted(novel.volumes, key=lambda v: v.volume_number)]
+
 @app.get("/chapters/{chapter_id}")
 def get_chapter_endpoint(chapter_id: int, db: Session = Depends(get_db)):
     chapter = db.query(Chapter).filter(Chapter.id == chapter_id).first()
@@ -257,6 +271,54 @@ def delete_knowledge_endpoint(entry_id: int, db: Session = Depends(get_db)):
     db.delete(db_entry)
     db.commit()
     return {"status": "success"}
+
+def _build_export_text(novel: Novel, volumes: list[Volume]) -> str:
+    lines = []
+    lines.append(f"《{novel.title}》")
+    lines.append("")
+    for vol in volumes:
+        lines.append("═" * 40)
+        lines.append(f"第{vol.volume_number}卷 {vol.title}")
+        lines.append("─" * 40)
+        lines.append("")
+        for chap in sorted(vol.chapters, key=lambda c: c.chapter_number):
+            lines.append(f"第{chap.chapter_number}章 {chap.title}")
+            lines.append("")
+            if chap.content:
+                lines.append(chap.content.strip())
+            else:
+                lines.append("（本章暂无正文）")
+            lines.append("")
+            lines.append("─" * 40)
+            lines.append("")
+    return "\n".join(lines)
+
+@app.get("/novels/{novel_id}/export")
+def export_novel_endpoint(novel_id: int, volume_id: Optional[int] = None, db: Session = Depends(get_db)):
+    novel = db.query(Novel).filter(Novel.id == novel_id).first()
+    if not novel:
+        return {"error": "Novel not found"}
+
+    if volume_id is not None:
+        volume = db.query(Volume).options(joinedload(Volume.chapters)).filter(Volume.id == volume_id, Volume.novel_id == novel_id).first()
+        if not volume:
+            return {"error": "Volume not found"}
+        volumes = [volume]
+    else:
+        volumes = sorted(
+            db.query(Volume).options(joinedload(Volume.chapters)).filter(Volume.novel_id == novel_id).all(),
+            key=lambda v: v.volume_number
+        )
+
+    text = _build_export_text(novel, volumes)
+    date_str = datetime.now().strftime("%Y%m%d")
+    filename = f"{novel.title}_{date_str}.txt"
+
+    return PlainTextResponse(
+        content=text,
+        media_type="text/plain; charset=utf-8",
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{url_quote(filename)}"}
+    )
 
 if __name__ == "__main__":
     import uvicorn
